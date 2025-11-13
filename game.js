@@ -159,35 +159,41 @@ class Game {
         
         // 鼠标事件 - 优化响应速度
         this.canvas.addEventListener('mousemove', (e) => {
-            if (this.gameState === 'playing' && !this.isPaused) {
-                this.mousePos.x = e.clientX;
-                this.mousePos.y = e.clientY;
-                this.mouseWorldPos.x = e.clientX + this.camera.x;
-                this.mouseWorldPos.y = e.clientY + this.camera.y;
+            if (this.gameState === 'playing' && !this.isPaused && this.player) {
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+                
+                this.mousePos.x = canvasX;
+                this.mousePos.y = canvasY;
+                this.mouseWorldPos.x = canvasX + this.camera.x;
+                this.mouseWorldPos.y = canvasY + this.camera.y;
                 this.mouseUpdateTime = performance.now();
                 
-                if (this.player) {
-                    this.player.targetX = this.mouseWorldPos.x;
-                    this.player.targetY = this.mouseWorldPos.y;
-                }
+                // 实时更新玩家目标位置
+                this.player.targetX = this.mouseWorldPos.x;
+                this.player.targetY = this.mouseWorldPos.y;
             }
         });
         
         // 触摸事件支持
         this.canvas.addEventListener('touchmove', (e) => {
-            if (this.gameState === 'playing' && !this.isPaused) {
+            if (this.gameState === 'playing' && !this.isPaused && this.player) {
                 e.preventDefault();
+                const rect = this.canvas.getBoundingClientRect();
                 const touch = e.touches[0];
-                this.mousePos.x = touch.clientX;
-                this.mousePos.y = touch.clientY;
-                this.mouseWorldPos.x = touch.clientX + this.camera.x;
-                this.mouseWorldPos.y = touch.clientY + this.camera.y;
+                const canvasX = touch.clientX - rect.left;
+                const canvasY = touch.clientY - rect.top;
+                
+                this.mousePos.x = canvasX;
+                this.mousePos.y = canvasY;
+                this.mouseWorldPos.x = canvasX + this.camera.x;
+                this.mouseWorldPos.y = canvasY + this.camera.y;
                 this.mouseUpdateTime = performance.now();
                 
-                if (this.player) {
-                    this.player.targetX = this.mouseWorldPos.x;
-                    this.player.targetY = this.mouseWorldPos.y;
-                }
+                // 实时更新玩家目标位置
+                this.player.targetX = this.mouseWorldPos.x;
+                this.player.targetY = this.mouseWorldPos.y;
             }
         });
         
@@ -287,6 +293,12 @@ class Game {
             lastSplitTime: 0
         };
         
+        // 确保鼠标初始位置正确
+        this.mouseWorldPos = {
+            x: this.world.width / 2,
+            y: this.world.height / 2
+        };
+        
         // 生成AI玩家
         this.generateAIPlayers(8);
         
@@ -302,6 +314,11 @@ class Game {
         
         // 更新统计
         this.updateStats();
+        
+        // 添加鼠标进入画布的监听
+        this.canvas.addEventListener('mouseenter', () => {
+            this.canvas.style.cursor = 'crosshair';
+        });
     }
     
     generateAIPlayers(count) {
@@ -523,11 +540,35 @@ class Game {
     }
     
     updatePlayer(player) {
-        // 基础移动逻辑已在updatePlayerParts中处理
+        // 如果没有目标位置，设置为当前玩家中心位置
+        if (!player.targetX || !player.targetY) {
+            let centerX = 0, centerY = 0;
+            player.parts.forEach(part => {
+                centerX += part.x;
+                centerY += part.y;
+            });
+            centerX /= player.parts.length;
+            centerY /= player.parts.length;
+            
+            player.targetX = centerX;
+            player.targetY = centerY;
+        }
+        
+        // 对于人类玩家，确保target位置始终跟随鼠标
+        if (player === this.player && this.mouseWorldPos.x && this.mouseWorldPos.y) {
+            player.targetX = this.mouseWorldPos.x;
+            player.targetY = this.mouseWorldPos.y;
+        }
     }
     
     updatePlayerParts(player) {
         player.parts.forEach((part, index) => {
+            // 确保targetX和targetY存在
+            if (!player.targetX || !player.targetY) {
+                player.targetX = part.x;
+                player.targetY = part.y;
+            }
+            
             // 计算到目标的距离
             const dx = player.targetX - part.x;
             const dy = player.targetY - part.y;
@@ -547,11 +588,11 @@ class Game {
                 if (Math.abs(part.vx) < 0.5) part.vx = 0;
                 if (Math.abs(part.vy) < 0.5) part.vy = 0;
             } else if (distance > 5) {
-                // 正常移动
+                // 正常移动 - 确保有持续移动
                 part.velocityX = (dx / distance) * baseSpeed;
                 part.velocityY = (dy / distance) * baseSpeed;
             } else {
-                // 速度衰减
+                // 速度衰减但不要完全停止
                 part.velocityX *= 0.95;
                 part.velocityY *= 0.95;
             }
@@ -563,12 +604,6 @@ class Game {
             // 边界检查
             part.x = Math.max(part.radius, Math.min(this.world.width - part.radius, part.x));
             part.y = Math.max(part.radius, Math.min(this.world.height - part.radius, part.y));
-            
-            // 更新目标位置
-            if (part.vx === 0 && part.vy === 0) {
-                part.targetX = part.x;
-                part.targetY = part.y;
-            }
             
             // 球球之间的分离检测
             for (let j = index + 1; j < player.parts.length; j++) {
@@ -683,6 +718,14 @@ class Game {
                     const target = targets[0];
                     aiPlayer.targetX = target.item.x;
                     aiPlayer.targetY = target.item.y;
+                } else {
+                    // 随机移动探索
+                    if (Math.random() < 0.1) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const distance = 200 + Math.random() * 200;
+                        aiPlayer.targetX = mainPart.x + Math.cos(angle) * distance;
+                        aiPlayer.targetY = mainPart.y + Math.sin(angle) * distance;
+                    }
                 }
             } else {
                 // 防守型，更谨慎
@@ -719,9 +762,9 @@ class Game {
                     aiPlayer.targetY = food.y;
                 } else {
                     // 随机移动，但不要太激进
-                    if (Math.random() < 0.1) {
+                    if (Math.random() < 0.05) {
                         const angle = Math.random() * Math.PI * 2;
-                        const distance = 200 + Math.random() * 200;
+                        const distance = 100 + Math.random() * 100;
                         aiPlayer.targetX = mainPart.x + Math.cos(angle) * distance;
                         aiPlayer.targetY = mainPart.y + Math.sin(angle) * distance;
                     }
