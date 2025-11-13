@@ -137,8 +137,11 @@ class Game {
     }
     
     setupEventListeners() {
+        console.log("Setting up event listeners...");
+        
         // 开始游戏
         document.getElementById('startBtn').addEventListener('click', () => {
+            console.log("Start button clicked");
             const playerName = document.getElementById('playerName').value.trim();
             if (playerName) {
                 this.startGame(playerName);
@@ -149,11 +152,13 @@ class Game {
         
         // 重新开始
         document.getElementById('restartBtn').addEventListener('click', () => {
+            console.log("Restart button clicked");
             this.restartGame();
         });
         
         // 返回主页
         document.getElementById('homeBtn').addEventListener('click', () => {
+            console.log("Home button clicked");
             this.returnToMenu();
         });
         
@@ -173,7 +178,29 @@ class Game {
                 // 实时更新玩家目标位置
                 this.player.targetX = this.mouseWorldPos.x;
                 this.player.targetY = this.mouseWorldPos.y;
+                
+                console.log(`Mouse moved to: ${this.mouseWorldPos.x}, ${this.mouseWorldPos.y}`);
             }
+        });
+        
+        // 确保鼠标进入画布时立即生效
+        this.canvas.addEventListener('mouseenter', (e) => {
+            if (this.gameState === 'playing' && !this.isPaused && this.player) {
+                const rect = this.canvas.getBoundingClientRect();
+                const canvasX = e.clientX - rect.left;
+                const canvasY = e.clientY - rect.top;
+                
+                this.mousePos.x = canvasX;
+                this.mousePos.y = canvasY;
+                this.mouseWorldPos.x = canvasX + this.camera.x;
+                this.mouseWorldPos.y = canvasY + this.camera.y;
+                
+                this.player.targetX = this.mouseWorldPos.x;
+                this.player.targetY = this.mouseWorldPos.y;
+                
+                console.log(`Mouse entered canvas: ${this.mouseWorldPos.x}, ${this.mouseWorldPos.y}`);
+            }
+            this.canvas.style.cursor = 'crosshair';
         });
         
         // 触摸事件支持
@@ -194,12 +221,15 @@ class Game {
                 // 实时更新玩家目标位置
                 this.player.targetX = this.mouseWorldPos.x;
                 this.player.targetY = this.mouseWorldPos.y;
+                
+                console.log(`Touch moved to: ${this.mouseWorldPos.x}, ${this.mouseWorldPos.y}`);
             }
         });
         
         // 键盘事件
         document.addEventListener('keydown', (e) => {
             if (this.gameState === 'playing' && !this.isPaused) {
+                console.log(`Key pressed: ${e.code}`);
                 switch(e.code) {
                     case 'Space':
                         e.preventDefault();
@@ -222,42 +252,51 @@ class Game {
         
         // 游戏控制按钮
         document.getElementById('pauseBtn').addEventListener('click', () => {
+            console.log("Pause button clicked");
             this.togglePause();
         });
         
         document.getElementById('settingsBtn').addEventListener('click', () => {
+            console.log("Settings button clicked");
             this.showSettings();
         });
         
         document.getElementById('fullscreenBtn').addEventListener('click', () => {
+            console.log("Fullscreen button clicked");
             this.toggleFullscreen();
         });
         
         // 设置面板
         document.getElementById('closeSettings').addEventListener('click', () => {
+            console.log("Close settings clicked");
             this.hideSettings();
         });
         
         // 设置项监听
         document.getElementById('graphicsQuality').addEventListener('change', (e) => {
+            console.log(`Graphics quality changed to: ${e.target.value}`);
             this.settings.graphicsQuality = e.target.value;
             this.applyGraphicsSettings();
         });
         
         document.getElementById('particleEffects').addEventListener('change', (e) => {
+            console.log(`Particle effects: ${e.target.checked}`);
             this.settings.particleEffects = e.target.checked;
         });
         
         document.getElementById('showGrid').addEventListener('change', (e) => {
+            console.log(`Show grid: ${e.target.checked}`);
             this.settings.showGrid = e.target.checked;
         });
         
         // 暂停菜单
         document.getElementById('resumeBtn').addEventListener('click', () => {
+            console.log("Resume button clicked");
             this.togglePause();
         });
         
         document.getElementById('quitBtn').addEventListener('click', () => {
+            console.log("Quit button clicked");
             this.returnToMenu();
         });
         
@@ -267,23 +306,30 @@ class Game {
                 document.getElementById('startBtn').click();
             }
         });
+        
+        console.log("All event listeners set up");
     }
     
     startGame(playerName) {
+        console.log(`Starting game with player: ${playerName}`);
+        
         // 创建玩家
+        const centerX = this.world.width / 2;
+        const centerY = this.world.height / 2;
+        
         this.player = {
             name: playerName,
-            x: this.world.width / 2,
-            y: this.world.height / 2,
+            x: centerX,
+            y: centerY,
             radius: 25,
             color: this.colors[Math.floor(Math.random() * this.colors.length)],
-            targetX: this.world.width / 2,
-            targetY: this.world.height / 2,
+            targetX: centerX,
+            targetY: centerY,
             velocityX: 0,
             velocityY: 0,
             parts: [{
-                x: this.world.width / 2,
-                y: this.world.height / 2,
+                x: centerX,
+                y: centerY,
                 radius: 25,
                 vx: 0,
                 vy: 0
@@ -295,8 +341,13 @@ class Game {
         
         // 确保鼠标初始位置正确
         this.mouseWorldPos = {
-            x: this.world.width / 2,
-            y: this.world.height / 2
+            x: centerX,
+            y: centerY
+        };
+        
+        this.mousePos = {
+            x: this.canvas.width / 2,
+            y: this.canvas.height / 2
         };
         
         // 生成AI玩家
@@ -312,31 +363,48 @@ class Game {
         document.getElementById('startMenu').style.display = 'none';
         document.getElementById('gameCanvas').style.display = 'block';
         
+        // 立即设置鼠标位置
+        setTimeout(() => {
+            if (this.canvas && this.player) {
+                this.player.targetX = centerX;
+                this.player.targetY = centerY;
+                this.mouseWorldPos.x = centerX;
+                this.mouseWorldPos.y = centerY;
+                console.log(`Initial mouse position set to: ${centerX}, ${centerY}`);
+            }
+        }, 100);
+        
         // 更新统计
         this.updateStats();
         
         // 添加鼠标进入画布的监听
         this.canvas.addEventListener('mouseenter', () => {
             this.canvas.style.cursor = 'crosshair';
+            console.log("Mouse entered canvas");
         });
+        
+        console.log(`Game started! State: ${this.gameState}, Player: ${!!this.player}`);
     }
     
     generateAIPlayers(count) {
         for (let i = 0; i < count; i++) {
+            const x = Math.random() * this.world.width;
+            const y = Math.random() * this.world.height;
             const radius = Math.random() * 30 + 15;
+            
             const aiPlayer = {
                 name: `AI玩家${i + 1}`,
-                x: Math.random() * this.world.width,
-                y: Math.random() * this.world.height,
+                x: x,
+                y: y,
                 radius: radius,
                 color: this.colors[Math.floor(Math.random() * this.colors.length)],
-                targetX: Math.random() * this.world.width,
-                targetY: Math.random() * this.world.height,
+                targetX: x + (Math.random() - 0.5) * 200,
+                targetY: y + (Math.random() - 0.5) * 200,
                 velocityX: 0,
                 velocityY: 0,
                 parts: [{
-                    x: Math.random() * this.world.width,
-                    y: Math.random() * this.world.height,
+                    x: x,
+                    y: y,
                     radius: radius,
                     vx: 0,
                     vy: 0
@@ -344,10 +412,12 @@ class Game {
                 mass: radius * radius * Math.PI,
                 score: 0,
                 isAI: true,
-                aiUpdateCounter: 0,
+                aiUpdateCounter: Math.floor(Math.random() * 30), // 随机初始计数器
                 personality: Math.random() > 0.5 ? 'aggressive' : 'defensive'
             };
             this.players.push(aiPlayer);
+            
+            console.log(`Created AI player ${aiPlayer.name} at (${x}, ${y}) with target (${aiPlayer.targetX}, ${aiPlayer.targetY})`);
         }
     }
     
@@ -497,12 +567,16 @@ class Game {
     }
     
     updateGame() {
+        // 添加调试信息
+        console.log(`Game State: ${this.gameState}, IsPaused: ${this.isPaused}, Player exists: ${!!this.player}`);
+        
         if (this.gameState !== 'playing' || this.isPaused) return;
         
         // 更新玩家
         if (this.player) {
             this.updatePlayer(this.player);
             this.updatePlayerParts(this.player);
+            console.log(`Player target: ${this.player.targetX}, ${this.player.targetY}`);
         }
         
         // 更新AI玩家
@@ -528,7 +602,7 @@ class Game {
         this.checkCollisions();
         
         // 补充食物
-        if (Math.random() < 0.1 && this.foods.length < 800) {
+        if (Math.random() < 0.05 && this.foods.length < 600) {
             this.generateFood();
         }
         
@@ -597,6 +671,16 @@ class Game {
                 part.velocityY *= 0.95;
             }
             
+            // 确保最小速度（除非非常接近目标）
+            if (distance > 10) {
+                const currentSpeed = Math.sqrt(part.velocityX * part.velocityX + part.velocityY * part.velocityY);
+                if (currentSpeed < 1.0) {
+                    const boost = 1.5 / currentSpeed;
+                    part.velocityX *= boost;
+                    part.velocityY *= boost;
+                }
+            }
+            
             // 更新位置
             part.x += part.velocityX;
             part.y += part.velocityY;
@@ -613,7 +697,7 @@ class Game {
                 const distance2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
                 const minDistance = part.radius + otherPart.radius;
                 
-                if (distance2 < minDistance) {
+                if (distance2 < minDistance && distance2 > 0) {
                     const overlap = minDistance - distance2;
                     const separationX = (dx2 / distance2) * overlap * 0.5;
                     const separationY = (dy2 / distance2) * overlap * 0.5;
