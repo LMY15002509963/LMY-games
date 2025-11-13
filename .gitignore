@@ -1,0 +1,21 @@
+# 忽略文件
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
+dist/
+build/
+
+# 开发工具
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+*.tmp
+*.temp
+
+# 编辑器配置
+.vscode/settings.json
+.vscode/launch.json
