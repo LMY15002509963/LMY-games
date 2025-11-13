@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>球球大作战 - 性能优化版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+            user-select: none;
+        }
+        
+        #gameCanvas {
+            display: none;
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #game {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+            background: #0a0a0a;
+            transform: translateZ(0);
+            will-change: transform;
+        }
+        
+        #gameUI {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        .score-display {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            backdrop-filter: blur(10px);
+        }
+        
+        #startMenu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            color: white;
+            backdrop-filter: blur(15px);
+        }
+        
+        #playerName {
+            width: 100%;
+            padding: 15px;
+            font-size: 18px;
+            border: 2px solid #4ecdc4;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            margin-bottom: 20px;
+        }
+        
+        #startBtn {
+            width: 100%;
+            padding: 15px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(45deg, #4ecdc4, #45b7d1);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        #startBtn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(78, 205, 196, 0.4);
+        }
+        
+        .performance-info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            color: #4ecdc4;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="startMenu">
+        <h1>球球大作战</h1>
+        <input type="text" id="playerName" placeholder="输入你的昵称" maxlength="12">
+        <button id="startBtn">开始游戏</button>
+    </div>
+    
+    <div id="gameCanvas">
+        <canvas id="game"></canvas>
+        <div id="gameUI">
+            <div class="score-display">
+                <div>得分: <span id="score">0</span></div>
+                <div>质量: <span id="mass">0</span></div>
+                <div>排名: <span id="rank">1</span></div>
+            </div>
+            <div class="performance-info">
+                <div>FPS: <span id="fps">60</span></div>
+                <div>物体: <span id="objectCount">0</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class OptimizedGame {
+            constructor() {
+                this.canvas = document.getElementById('game');
+                this.ctx = this.canvas.getContext('2d', {
+                    alpha: false,
+                    desynchronized: true // 启用异步渲染
+                });
+                
+                this.world = { width: 2000, height: 2000 }; // 缩小世界提高性能
+                this.player = null;
+                this.players = [];
+                this.foods = [];
+                this.camera = { x: 0, y: 0 };
+                this.mousePos = { x: 0, y: 0 };
+                this.score = 0;
+                this.gameState = 'menu';
+                this.lastTime = performance.now();
+                this.fps = 60;
+                this.frameCount = 0;
+                
+                this.colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f7dc6f', '#bb8fce'];
+                
+                this.init();
+            }
+            
+            init() {
+                this.setupCanvas();
+                this.generateFood();
+                this.setupEventListeners();
+                this.gameLoop();
+            }
+            
+            setupCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.ctx.imageSmoothingEnabled = true;
+                
+                // 启用硬件加速
+                this.canvas.style.willChange = 'transform';
+                this.canvas.style.transform = 'translateZ(0)';
+                
+                window.addEventListener('resize', () => {
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                });
+            }
+            
+            generateFood() {
+                const foodCount = 300; // 减少食物数量
+                for (let i = 0; i < foodCount; i++) {
+                    this.foods.push({
+                        x: Math.random() * this.world.width,
+                        y: Math.random() * this.world.height,
+                        radius: Math.random() * 3 + 2,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)]
+                    });
+                }
+            }
+            
+            setupEventListeners() {
+                document.getElementById('startBtn').addEventListener('click', () => {
+                    this.startGame();
+                });
+                
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (this.gameState !== 'playing' || !this.player) return;
+                    
+                    this.mousePos.x = e.clientX;
+                    this.mousePos.y = e.clientY;
+                    
+                    // 立即更新目标
+                    this.player.targetX = this.mousePos.x + this.camera.x;
+                    this.player.targetY = this.mousePos.y + this.camera.y;
+                });
+                
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                });
+            }
+            
+            startGame() {
+                const playerName = document.getElementById('playerName').value.trim() || '玩家';
+                
+                this.player = {
+                    name: playerName,
+                    x: this.world.width / 2,
+                    y: this.world.height / 2,
+                    radius: 20,
+                    color: '#4ecdc4',
+                    targetX: this.world.width / 2,
+                    targetY: this.world.height / 2,
+                    vx: 0,
+                    vy: 0,
+                    parts: [{
+                        x: this.world.width / 2,
+                        y: this.world.height / 2,
+                        radius: 20,
+                        vx: 0,
+                        vy: 0
+                    }],
+                    score: 0,
+                    mass: 1256
+                };
+                
+                // 生成AI玩家（减少数量）
+                this.generateAIPlayers(3);
+                
+                document.getElementById('startMenu').style.display = 'none';
+                document.getElementById('gameCanvas').style.display = 'block';
+                this.gameState = 'playing';
+            }
+            
+            generateAIPlayers(count) {
+                for (let i = 0; i < count; i++) {
+                    const x = Math.random() * this.world.width;
+                    const y = Math.random() * this.world.height;
+                    const radius = Math.random() * 20 + 10;
+                    
+                    this.players.push({
+                        name: `AI_${i + 1}`,
+                        x: x,
+                        y: y,
+                        radius: radius,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)],
+                        targetX: x,
+                        targetY: y,
+                        vx: 0,
+                        vy: 0,
+                        isAI: true,
+                        parts: [{
+                            x: x,
+                            y: y,
+                            radius: radius,
+                            vx: 0,
+                            vy: 0
+                        }],
+                        score: Math.floor(Math.random() * 100)
+                    });
+                }
+            }
+            
+            update() {
+                if (this.gameState !== 'playing') return;
+                
+                // 更新玩家
+                this.updatePlayer(this.player);
+                
+                // 更新AI
+                this.players.forEach(ai => {
+                    if (ai.isAI) this.updateAI(ai);
+                    this.updatePlayer(ai);
+                });
+                
+                // 碰撞检测
+                this.checkCollisions();
+                
+                // 更新相机
+                this.updateCamera();
+                
+                // 补充食物
+                if (Math.random() < 0.02 && this.foods.length < 300) {
+                    this.foods.push({
+                        x: Math.random() * this.world.width,
+                        y: Math.random() * this.world.height,
+                        radius: Math.random() * 3 + 2,
+                        color: this.colors[Math.floor(Math.random() * this.colors.length)]
+                    });
+                }
+            }
+            
+            updatePlayer(player) {
+                const mainPart = player.parts[0];
+                if (!mainPart) return;
+                
+                const dx = player.targetX - mainPart.x;
+                const dy = player.targetY - mainPart.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > 5) {
+                    const speed = Math.max(3, 8 - mainPart.radius * 0.05);
+                    mainPart.vx = (dx / distance) * speed;
+                    mainPart.vy = (dy / distance) * speed;
+                } else {
+                    mainPart.vx *= 0.9;
+                    mainPart.vy *= 0.9;
+                }
+                
+                mainPart.x += mainPart.vx;
+                mainPart.y += mainPart.vy;
+                
+                // 边界检查
+                mainPart.x = Math.max(mainPart.radius, Math.min(this.world.width - mainPart.radius, mainPart.x));
+                mainPart.y = Math.max(mainPart.radius, Math.min(this.world.height - mainPart.radius, mainPart.y));
+            }
+            
+            updateAI(ai) {
+                const mainPart = ai.parts[0];
+                
+                // 简单AI行为
+                if (Math.random() < 0.05) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = 100 + Math.random() * 200;
+                    ai.targetX = mainPart.x + Math.cos(angle) * distance;
+                    ai.targetY = mainPart.y + Math.sin(angle) * distance;
+                }
+                
+                // 寻找附近食物
+                const nearbyFood = this.foods.find(food => {
+                    const dist = Math.sqrt(Math.pow(food.x - mainPart.x, 2) + Math.pow(food.y - mainPart.y, 2));
+                    return dist < 150;
+                });
+                
+                if (nearbyFood) {
+                    ai.targetX = nearbyFood.x;
+                    ai.targetY = nearbyFood.y;
+                }
+            }
+            
+            checkCollisions() {
+                const allPlayers = [this.player, ...this.players];
+                
+                // 玩家吃食物
+                allPlayers.forEach(player => {
+                    player.parts.forEach(part => {
+                        this.foods = this.foods.filter(food => {
+                            const dist = Math.sqrt(Math.pow(food.x - part.x, 2) + Math.pow(food.y - part.y, 2));
+                            if (dist < part.radius + food.radius) {
+                                part.radius = Math.sqrt(part.radius * part.radius + food.radius);
+                                player.score += Math.floor(food.radius);
+                                if (player === this.player) {
+                                    this.score = player.score;
+                                }
+                                return false;
+                            }
+                            return true;
+                        });
+                    });
+                });
+                
+                // 更新玩家大小
+                allPlayers.forEach(player => {
+                    player.parts.forEach(part => {
+                        if (part.radius > 50) part.radius = 50; // 限制最大尺寸
+                    });
+                });
+            }
+            
+            updateCamera() {
+                const mainPart = this.player.parts[0];
+                if (!mainPart) return;
+                
+                const targetX = mainPart.x - this.canvas.width / 2;
+                const targetY = mainPart.y - this.canvas.height / 2;
+                
+                this.camera.x += (targetX - this.camera.x) * 0.1;
+                this.camera.y += (targetY - this.camera.y) * 0.1;
+                
+                this.camera.x = Math.max(0, Math.min(this.world.width - this.canvas.width, this.camera.x));
+                this.camera.y = Math.max(0, Math.min(this.world.height - this.canvas.height, this.camera.y));
+            }
+            
+            render() {
+                // 清空画布
+                this.ctx.fillStyle = '#0a0a0a';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                if (this.gameState !== 'playing') return;
+                
+                this.ctx.save();
+                this.ctx.translate(-this.camera.x, -this.camera.y);
+                
+                // 绘制食物（简化）
+                this.foods.forEach(food => {
+                    this.ctx.fillStyle = food.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(food.x, food.y, food.radius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                });
+                
+                // 绘制玩家
+                const allPlayers = [this.player, ...this.players];
+                allPlayers.forEach(player => {
+                    player.parts.forEach(part => {
+                        this.ctx.fillStyle = player.color;
+                        this.ctx.beginPath();
+                        this.ctx.arc(part.x, part.y, part.radius, 0, Math.PI * 2);
+                        this.ctx.fill();
+                        
+                        // 绘制名字
+                        if (player === this.player || player.parts[0] === part) {
+                            this.ctx.fillStyle = 'white';
+                            this.ctx.font = '14px Arial';
+                            this.ctx.textAlign = 'center';
+                            this.ctx.fillText(player.name, part.x, part.y - part.radius - 10);
+                        }
+                    });
+                });
+                
+                this.ctx.restore();
+                
+                // 更新UI
+                this.updateUI();
+            }
+            
+            updateUI() {
+                document.getElementById('score').textContent = this.score;
+                document.getElementById('mass').textContent = Math.floor(this.player.parts[0].radius * this.player.parts[0].radius * Math.PI);
+                document.getElementById('fps').textContent = Math.round(this.fps);
+                document.getElementById('objectCount').textContent = this.foods.length + this.players.length + 1;
+            }
+            
+            gameLoop() {
+                const now = performance.now();
+                const deltaTime = now - this.lastTime;
+                
+                // 限制帧率
+                if (deltaTime >= 16) {
+                    this.update();
+                    this.render();
+                    
+                    // 计算FPS
+                    this.frameCount++;
+                    if (this.frameCount % 30 === 0) {
+                        this.fps = 1000 / deltaTime;
+                    }
+                    
+                    this.lastTime = now;
+                }
+                
+                requestAnimationFrame(() => this.gameLoop());
+            }
+        }
+        
+        // 启动游戏
+        window.addEventListener('load', () => {
+            new OptimizedGame();
+        });
+    </script>
+</body>
+</html>

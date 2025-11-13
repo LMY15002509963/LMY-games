@@ -236,7 +236,7 @@ class Game {
     
     setupCanvas() {
         // 设置高DPI支持
-        const dpr = window.devicePixelRatio || 1;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2); // 限制DPI避免过载
         const rect = this.canvas.getBoundingClientRect();
         
         this.canvas.width = window.innerWidth;
@@ -244,9 +244,14 @@ class Game {
         this.canvas.style.width = window.innerWidth + 'px';
         this.canvas.style.height = window.innerHeight + 'px';
         
-        // 设置画布样式优化
-        this.ctx.imageSmoothingEnabled = false;
-        this.ctx.imageSmoothingQuality = 'high';
+        // 优化画布设置
+        this.ctx.imageSmoothingEnabled = true;
+        this.ctx.imageSmoothingQuality = 'medium'; // 降低质量提高性能
+        this.ctx.globalAlpha = 1.0;
+        
+        // 启用硬件加速
+        this.canvas.style.willChange = 'transform';
+        this.canvas.style.transform = 'translateZ(0)';
         
         this.minimapCanvas.width = 180;
         this.minimapCanvas.height = 180;
@@ -272,12 +277,15 @@ class Game {
     
     generateFood() {
         // 根据世界大小和图形质量调整食物数量
-        const baseFoodCount = this.settings.graphicsQuality === 'high' ? 1200 : 
-                             this.settings.graphicsQuality === 'medium' ? 900 : 600;
+        const baseFoodCount = this.settings.graphicsQuality === 'high' ? 800 : 
+                             this.settings.graphicsQuality === 'medium' ? 600 : 400;
         // 根据世界大小比例调整食物数量
         const foodCount = Math.floor(baseFoodCount * (this.world.width * this.world.height) / (4000 * 4000));
         
-        for (let i = 0; i < foodCount; i++) {
+        // 性能优化：限制最大食物数量
+        const maxFoodCount = Math.min(foodCount, 800);
+        
+        for (let i = 0; i < maxFoodCount; i++) {
             this.foods.push({
                 x: Math.random() * this.world.width,
                 y: Math.random() * this.world.height,
@@ -314,9 +322,12 @@ class Game {
             this.returnToMenu();
         });
         
-        // 鼠标事件 - 优化响应速度
+        // 鼠标事件 - 优化响应速度和性能
+        let mouseThrottle = false;
         this.canvas.addEventListener('mousemove', (e) => {
-            if (this.gameState === 'playing' && !this.isPaused && this.player) {
+            if (this.gameState === 'playing' && !this.isPaused && this.player && !mouseThrottle) {
+                mouseThrottle = true;
+                
                 const rect = this.canvas.getBoundingClientRect();
                 const canvasX = e.clientX - rect.left;
                 const canvasY = e.clientY - rect.top;
@@ -327,9 +338,14 @@ class Game {
                 this.mouseWorldPos.y = canvasY + this.camera.y;
                 this.mouseUpdateTime = performance.now();
                 
-                // 实时更新玩家目标位置，提高响应性
+                // 立即更新玩家目标位置，提高响应性
                 this.player.targetX = this.mouseWorldPos.x;
                 this.player.targetY = this.mouseWorldPos.y;
+                
+                // 使用requestAnimationFrame恢复
+                requestAnimationFrame(() => {
+                    mouseThrottle = false;
+                });
             }
         });
         
@@ -347,8 +363,11 @@ class Game {
                 
                 this.player.targetX = this.mouseWorldPos.x;
                 this.player.targetY = this.mouseWorldPos.y;
+                
+                // 启用硬件加速
+                this.canvas.style.cursor = 'crosshair';
+                this.canvas.style.transform = 'translateZ(0)';
             }
-            this.canvas.style.cursor = 'crosshair';
         });
         
         // 添加鼠标离开画布事件，防止抽搐
@@ -785,12 +804,23 @@ class Game {
         this.checkCollisions();
         
         // 补充食物 - 根据世界大小调整
-        const maxFoodCount = this.settings.graphicsQuality === 'high' ? 1200 : 
-                            this.settings.graphicsQuality === 'medium' ? 900 : 600;
+        const maxFoodCount = this.settings.graphicsQuality === 'high' ? 800 : 
+                            this.settings.graphicsQuality === 'medium' ? 500 : 300;
         const targetFoodCount = Math.floor(maxFoodCount * (this.world.width * this.world.height) / (4000 * 4000));
         
-        if (Math.random() < 0.05 && this.foods.length < targetFoodCount) {
-            this.generateFood();
+        if (Math.random() < 0.03 && this.foods.length < targetFoodCount) { // 降低补充频率
+            // 只生成可见区域附近的食物
+            const centerX = this.camera.x + this.canvas.width / 2;
+            const centerY = this.camera.y + this.canvas.height / 2;
+            const spawnRange = 500;
+            
+            this.foods.push({
+                x: centerX + (Math.random() - 0.5) * spawnRange,
+                y: centerY + (Math.random() - 0.5) * spawnRange,
+                radius: Math.random() * 4 + 3,
+                color: this.colors[Math.floor(Math.random() * this.colors.length)],
+                pulsePhase: Math.random() * Math.PI * 2
+            });
         }
         
         // 更新相机
@@ -1939,7 +1969,11 @@ class Game {
     }
     
     updateParticles() {
-        this.particles = this.particles.filter(particle => {
+        // 限制粒子更新数量
+        const maxParticles = 50;
+        const particlesToUpdate = this.particles.slice(0, maxParticles);
+        
+        this.particles = particlesToUpdate.filter(particle => {
             particle.x += particle.vx;
             particle.y += particle.vy;
             particle.vx *= 0.98;
@@ -2098,12 +2132,13 @@ class Game {
         const centerX = totalX / this.player.parts.length;
         const centerY = totalY / this.player.parts.length;
         
-        // 平滑相机移动
+        // 平滑相机移动 - 提高平滑度
         const targetCameraX = centerX - this.canvas.width / 2;
         const targetCameraY = centerY - this.canvas.height / 2;
         
-        this.camera.x += (targetCameraX - this.camera.x) * 0.1;
-        this.camera.y += (targetCameraY - this.camera.y) * 0.1;
+        const smoothingFactor = 0.15; // 提高平滑度
+        this.camera.x += (targetCameraX - this.camera.x) * smoothingFactor;
+        this.camera.y += (targetCameraY - this.camera.y) * smoothingFactor;
         
         // 限制相机边界
         this.camera.x = Math.max(0, Math.min(this.world.width - this.canvas.width, this.camera.x));
@@ -2170,23 +2205,34 @@ class Game {
     applyGraphicsSettings() {
         switch(this.settings.graphicsQuality) {
             case 'low':
-                this.foods = this.foods.slice(0, 400);
+                // 低质量模式 - 优化性能
+                this.foods = this.foods.slice(0, 300);
+                this.ctx.imageSmoothingQuality = 'low';
                 break;
             case 'medium':
-                while (this.foods.length < 600) {
+                // 中等质量模式
+                while (this.foods.length < 500) {
                     this.generateFood();
                 }
+                this.ctx.imageSmoothingQuality = 'medium';
                 break;
             case 'high':
+                // 高质量模式
                 while (this.foods.length < 800) {
                     this.generateFood();
                 }
+                this.ctx.imageSmoothingQuality = 'high';
                 break;
+        }
+        
+        // 限制粒子数量
+        if (this.particles.length > 100) {
+            this.particles = this.particles.slice(0, 100);
         }
     }
     
     render() {
-        // 清空画布
+        // 清空画布 - 优化清空方式
         this.ctx.fillStyle = '#0a0a0a';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
@@ -2198,30 +2244,48 @@ class Game {
         // 应用相机变换
         this.ctx.translate(-this.camera.x, -this.camera.y);
         
-        // 绘制网格背景
-        if (this.settings.showGrid) {
+        // 只渲染可见区域内的食物 - 视锥剔除
+        const visibleFoods = this.foods.filter(food => {
+            return food.x > this.camera.x - 100 && 
+                   food.x < this.camera.x + this.canvas.width + 100 &&
+                   food.y > this.camera.y - 100 && 
+                   food.y < this.camera.y + this.canvas.height + 100;
+        });
+        
+        // 绘制网格（降低频率）
+        if (this.settings.showGrid && this.frameCount % 2 === 0) {
             this.drawGrid();
         }
         
         // 绘制食物
-        this.foods.forEach(food => {
+        visibleFoods.forEach(food => {
             this.drawFood(food);
         });
         
         // 绘制发射的小球
-        if (this.ejectedBalls) {
+        if (this.ejectedBalls && this.ejectedBalls.length > 0) {
             this.ejectedBalls.forEach(ball => {
                 this.drawEjectedBall(ball);
             });
         }
         
-        // 绘制AI玩家
-        const allAIPlayers = this.players.slice(); // 本地AI玩家
+        // 绘制所有玩家
+        const allPlayers = this.players.slice();
         if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
-            allAIPlayers.push(...this.serverAIPlayers); // 服务器AI玩家
+            allPlayers.push(...this.serverAIPlayers);
         }
         
-        allAIPlayers.forEach(player => {
+        // 只绘制可见玩家
+        const visiblePlayers = allPlayers.filter(player => {
+            return player.parts.some(part => 
+                part.x > this.camera.x - 200 && 
+                part.x < this.camera.x + this.canvas.width + 200 &&
+                part.y > this.camera.y - 200 && 
+                part.y < this.camera.y + this.canvas.height + 200
+            );
+        });
+        
+        visiblePlayers.forEach(player => {
             this.drawPlayer(player);
         });
         
@@ -2230,9 +2294,11 @@ class Game {
             this.drawPlayer(this.player);
         }
         
-        // 绘制粒子效果
-        if (this.settings.particleEffects) {
-            this.particles.forEach(particle => {
+        // 限制粒子数量
+        if (this.settings.particleEffects && this.particles.length > 0) {
+            const maxParticles = 50;
+            const particlesToRender = this.particles.slice(0, maxParticles);
+            particlesToRender.forEach(particle => {
                 this.drawParticle(particle);
             });
         }
@@ -2240,59 +2306,71 @@ class Game {
         // 恢复上下文状态
         this.ctx.restore();
         
-        // 绘制小地图
-        this.renderMinimap();
+        // 绘制小地图（降低更新频率）
+        if (this.frameCount % 3 === 0) {
+            this.renderMinimap();
+        }
         
-        // 更新FPS
-        this.updateFPS();
+        // 更新FPS（降低频率）
+        if (this.frameCount % 10 === 0) {
+            this.updateFPS();
+        }
+        
+        this.frameCount++;
     }
     
     drawGrid() {
-        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)'; // 降低不透明度
         this.ctx.lineWidth = 1;
         
-        const gridSize = 50;
+        const gridSize = 100; // 增大网格尺寸减少绘制次数
         const startX = Math.floor(this.camera.x / gridSize) * gridSize;
         const startY = Math.floor(this.camera.y / gridSize) * gridSize;
         const endX = this.camera.x + this.canvas.width;
         const endY = this.camera.y + this.canvas.height;
         
+        // 使用更高效的绘制方式
+        this.ctx.beginPath();
+        
+        // 绘制垂直线
         for (let x = startX; x <= endX; x += gridSize) {
-            this.ctx.beginPath();
             this.ctx.moveTo(x, startY);
             this.ctx.lineTo(x, endY);
-            this.ctx.stroke();
         }
         
+        // 绘制水平线
         for (let y = startY; y <= endY; y += gridSize) {
-            this.ctx.beginPath();
             this.ctx.moveTo(startX, y);
             this.ctx.lineTo(endX, y);
-            this.ctx.stroke();
         }
+        
+        this.ctx.stroke();
     }
     
     drawFood(food) {
-        // 添加脉动效果
-        const pulse = Math.sin(Date.now() * 0.003 + food.pulsePhase) * 0.1 + 1;
+        // 简化脉动效果计算
+        const pulse = Math.sin(Date.now() * 0.001 + food.pulsePhase) * 0.05 + 1;
         const radius = food.radius * pulse;
         
+        // 简化绘制，减少渐变
         this.ctx.fillStyle = food.color;
         this.ctx.beginPath();
         this.ctx.arc(food.x, food.y, radius, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // 添加光晕效果
-        const gradient = this.ctx.createRadialGradient(
-            food.x, food.y, 0,
-            food.x, food.y, radius * 1.5
-        );
-        gradient.addColorStop(0, food.color + '40');
-        gradient.addColorStop(1, food.color + '00');
-        this.ctx.fillStyle = gradient;
-        this.ctx.beginPath();
-        this.ctx.arc(food.x, food.y, radius * 1.5, 0, Math.PI * 2);
-        this.ctx.fill();
+        // 仅在高质量模式下添加光晕
+        if (this.settings.graphicsQuality === 'high') {
+            const gradient = this.ctx.createRadialGradient(
+                food.x, food.y, 0,
+                food.x, food.y, radius * 1.5
+            );
+            gradient.addColorStop(0, food.color + '40');
+            gradient.addColorStop(1, food.color + '00');
+            this.ctx.fillStyle = gradient;
+            this.ctx.beginPath();
+            this.ctx.arc(food.x, food.y, radius * 1.5, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
     }
     
     drawEjectedBall(ball) {
@@ -2526,8 +2604,16 @@ class Game {
     }
     
     gameLoop() {
-        this.updateGame();
-        this.render();
+        const now = performance.now();
+        const deltaTime = now - this.lastFrameTime;
+        
+        // 限制帧率到60FPS
+        if (deltaTime >= 16.67) { // 1000/60 = 16.67ms
+            this.updateGame();
+            this.render();
+            this.lastFrameTime = now;
+        }
+        
         requestAnimationFrame(() => this.gameLoop());
     }
 }
