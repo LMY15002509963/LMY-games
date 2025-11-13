@@ -81,20 +81,42 @@ class Game {
         this.generateFood();
         this.setupEventListeners();
         this.hideLoadingScreen();
+        
+        // 立即开始游戏循环
         this.gameLoop();
+        
+        console.log('游戏初始化完成');
     }
     
     initNetwork() {
+        // 检测是否有Socket.IO可用
+        if (typeof io === 'undefined') {
+            console.log('Socket.IO未加载，使用单机模式');
+            this.isMultiplayer = false;
+            return;
+        }
+        
         // 检测是否在本地环境运行
         const isLocalhost = window.location.hostname === 'localhost' || 
-                          window.location.hostname === '127.0.0.1';
+                          window.location.hostname === '127.0.0.1' ||
+                          window.location.protocol === 'file:';
+        
+        // 如果是file://协议或者本地没有服务器，直接使用单机模式
+        if (window.location.protocol === 'file:') {
+            console.log('本地文件模式，使用单机游戏');
+            this.isMultiplayer = false;
+            return;
+        }
         
         // 根据环境设置服务器地址
         const serverUrl = isLocalhost ? 'http://localhost:3000' : window.location.origin;
         
         try {
             // 初始化Socket.io连接
-            this.socket = io(serverUrl);
+            this.socket = io(serverUrl, {
+                timeout: 3000,
+                forceNew: true
+            });
             this.setupNetworkListeners();
         } catch (error) {
             console.log('无法连接到服务器，使用单机模式:', error.message);
@@ -741,11 +763,13 @@ class Game {
             }
         });
         
-        // 更新服务器AI玩家（仅用于显示，不在客户端计算）
-        this.serverAIPlayers.forEach(aiPlayer => {
-            this.updatePlayer(aiPlayer);
-            this.updatePlayerParts(aiPlayer);
-        });
+        // 更新服务器AI玩家（仅在联机模式）
+        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+            this.serverAIPlayers.forEach(aiPlayer => {
+                this.updatePlayer(aiPlayer);
+                this.updatePlayerParts(aiPlayer);
+            });
+        }
         
         // 更新发射的小球
         if (this.ejectedBalls) {
@@ -2094,7 +2118,10 @@ class Game {
         document.getElementById('mass').textContent = Math.floor(this.player.mass);
         
         // 计算排名
-        const allPlayers = [...this.players, ...this.serverAIPlayers];
+        const allPlayers = this.players.slice(); // 本地AI玩家
+        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+            allPlayers.push(...this.serverAIPlayers); // 服务器AI玩家
+        }
         if (this.player) {
             allPlayers.push(this.player);
         }
@@ -2106,7 +2133,12 @@ class Game {
         this.updateLeaderboard(allPlayers.slice(0, 10));
         
         // 更新在线人数
-        document.getElementById('onlineCount').textContent = this.players.length + this.serverAIPlayers.length + 1;
+        let totalOnlineCount = this.players.length;
+        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+            totalOnlineCount += this.serverAIPlayers.length;
+        }
+        totalOnlineCount += 1; // 加上玩家自己
+        document.getElementById('onlineCount').textContent = totalOnlineCount;
     }
     
     updateLeaderboard(topPlayers) {
@@ -2184,7 +2216,11 @@ class Game {
         }
         
         // 绘制AI玩家
-        const allAIPlayers = [...this.players, ...this.serverAIPlayers];
+        const allAIPlayers = this.players.slice(); // 本地AI玩家
+        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+            allAIPlayers.push(...this.serverAIPlayers); // 服务器AI玩家
+        }
+        
         allAIPlayers.forEach(player => {
             this.drawPlayer(player);
         });
@@ -2376,7 +2412,12 @@ class Game {
         
         // 绘制AI玩家
         this.minimapCtx.fillStyle = 'rgba(255, 100, 100, 0.6)';
-        allAIPlayers.forEach(player => {
+        const allMinimapAIPlayers = this.players.slice(); // 本地AI玩家
+        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+            allMinimapAIPlayers.push(...this.serverAIPlayers); // 服务器AI玩家
+        }
+        
+        allMinimapAIPlayers.forEach(player => {
             player.parts.forEach(part => {
                 this.minimapCtx.beginPath();
                 this.minimapCtx.arc(
@@ -2493,7 +2534,25 @@ class Game {
 
 // 启动游戏
 window.addEventListener('load', () => {
-    new Game();
+    console.log('页面加载完成，开始初始化游戏...');
+    
+    try {
+        window.game = new Game();
+        console.log('游戏创建成功');
+        
+        // 如果没有连接到服务器，设置超时后进入单机模式
+        setTimeout(() => {
+            if (window.game && !window.game.isMultiplayer && !window.game.player) {
+                console.log('自动启动单机模式');
+                document.getElementById('playerName').value = '本地玩家';
+                // 不自动开始游戏，让用户点击开始按钮
+            }
+        }, 2000);
+        
+    } catch (error) {
+        console.error('游戏初始化失败:', error);
+        alert('游戏加载失败，请刷新页面重试');
+    }
 });
 
 // 添加CSS动画

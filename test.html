@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>球球大作战 - 本地测试版</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        button {
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            background: #45b7d1;
+            transform: translateY(-2px);
+        }
+        .info {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 球球大作战 - 本地测试</h1>
+        
+        <div class="info">
+            <h2>📋 测试说明</h2>
+            <p>这个页面用于测试游戏是否能正常加载</p>
+        </div>
+        
+        <div>
+            <button onclick="openFullGame()">🚀 打开完整游戏</button>
+            <button onclick="testBasicFunction()">🧪 基础功能测试</button>
+        </div>
+        
+        <div id="testResult" style="margin-top: 20px;"></div>
+    </div>
+
+    <script>
+        function openFullGame() {
+            window.open('index.html', '_blank');
+        }
+        
+        function testBasicFunction() {
+            const result = document.getElementById('testResult');
+            let tests = [];
+            
+            // 测试Canvas支持
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                tests.push('✅ Canvas支持: 正常');
+            } catch (e) {
+                tests.push('❌ Canvas支持: 失败 - ' + e.message);
+            }
+            
+            // 测试本地存储
+            try {
+                localStorage.setItem('test', 'test');
+                localStorage.removeItem('test');
+                tests.push('✅ 本地存储: 正常');
+            } catch (e) {
+                tests.push('❌ 本地存储: 失败 - ' + e.message);
+            }
+            
+            // 测试ES6支持
+            try {
+                eval('const test = () => {}');
+                tests.push('✅ ES6语法: 正常');
+            } catch (e) {
+                tests.push('❌ ES6语法: 失败 - ' + e.message);
+            }
+            
+            result.innerHTML = '<h3>测试结果：</h3>' + tests.join('<br>');
+        }
+    </script>
+</body>
+</html>
