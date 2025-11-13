@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="renderer" content="webkit">
+    <title>球球大作战 - 极速竞技</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* 预加载关键资源 */
+        body { margin: 0; padding: 0; }
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            color: white;
+            font-size: 24px;
+            transition: opacity 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <!-- 加载屏幕 -->
+    <div id="loadingScreen">正在加载游戏...</div>
+    
+    <div id="gameContainer">
+        <!-- 开始菜单 -->
+        <div id="startMenu">
+            <div class="game-header">
+                <h1 class="game-title">
+                    <span class="title-main">球球大作战</span>
+                    <span class="title-sub">极速竞技</span>
+                </h1>
+                <div class="game-stats">
+                    <div class="stat-item">
+                        <span class="stat-number" id="totalPlayers">0</span>
+                        <span class="stat-label">总玩家</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-number" id="todayGames">0</span>
+                        <span class="stat-label">今日游戏</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="login-section">
+                <div class="input-group">
+                    <input type="text" id="playerName" placeholder="输入你的游戏昵称" maxlength="12" autocomplete="off">
+                    <div class="input-effects"></div>
+                </div>
+                <button id="startBtn" class="start-button">
+                    <span class="button-text">开始游戏</span>
+                    <div class="button-effects"></div>
+                </button>
+            </div>
+            
+            <div class="game-features">
+                <h3>游戏特色</h3>
+                <div class="feature-grid">
+                    <div class="feature-item">
+                        <div class="feature-icon">🎯</div>
+                        <span>精准操控</span>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">⚡</div>
+                        <span>极速响应</span>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">🏆</div>
+                        <span>实时排行</span>
+                    </div>
+                    <div class="feature-item">
+                        <div class="feature-icon">🌟</div>
+                        <span>特效炫酷</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="controls-info">
+                <h3>操作说明</h3>
+                <div class="control-list">
+                    <div class="control-item">
+                        <kbd>鼠标移动</kbd>
+                        <span>控制球球方向</span>
+                    </div>
+                    <div class="control-item">
+                        <kbd>空格键</kbd>
+                        <span>分裂球球</span>
+                    </div>
+                    <div class="control-item">
+                        <kbd>W键</kbd>
+                        <span>发射质量</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="server-info">
+                <div class="server-status online">
+                    <span class="status-dot"></span>
+                    <span class="status-text">服务器正常</span>
+                </div>
+                <div class="online-count">
+                    <span>在线玩家:</span>
+                    <span id="onlineCount" class="count-number">0</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 游戏画布 -->
+        <div id="gameCanvas" style="display: none;">
+            <canvas id="game"></canvas>
+            <div id="gameUI">
+                <!-- 分数显示 -->
+                <div class="score-display">
+                    <div class="score-main">
+                        <div class="score-label">得分</div>
+                        <div class="score-value" id="score">0</div>
+                    </div>
+                    <div class="score-rank">
+                        <div class="rank-label">排名</div>
+                        <div class="rank-value" id="rank">--</div>
+                    </div>
+                    <div class="score-mass">
+                        <div class="mass-label">质量</div>
+                        <div class="mass-value" id="mass">0</div>
+                    </div>
+                </div>
+                
+                <!-- 小地图 -->
+                <div class="minimap" id="minimap">
+                    <canvas id="minimapCanvas"></canvas>
+                    <div class="minimap-border"></div>
+                </div>
+                
+                <!-- 排行榜 -->
+                <div class="leaderboard">
+                    <div class="leaderboard-header">
+                        <h3>排行榜</h3>
+                        <div class="leaderboard-tabs">
+                            <button class="tab active" data-tab="score">得分</button>
+                            <button class="tab" data-tab="mass">质量</button>
+                        </div>
+                    </div>
+                    <div class="leaderboard-list" id="leaderList"></div>
+                </div>
+                
+                <!-- 游戏控制 -->
+                <div class="game-controls">
+                    <button class="control-btn" id="pauseBtn">
+                        <span class="icon">⏸️</span>
+                    </button>
+                    <button class="control-btn" id="settingsBtn">
+                        <span class="icon">⚙️</span>
+                    </button>
+                    <button class="control-btn" id="fullscreenBtn">
+                        <span class="icon">🔳</span>
+                    </button>
+                </div>
+                
+                <!-- 性能监视器 -->
+                <div class="performance-monitor" id="perfMonitor">
+                    <div class="fps-counter">
+                        <span class="fps-label">FPS:</span>
+                        <span class="fps-value" id="fps">60</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 游戏结束 -->
+        <div id="gameOver" style="display: none;">
+            <div class="game-over-content">
+                <h2 class="game-over-title">游戏结束</h2>
+                <div class="final-stats">
+                    <div class="stat-item">
+                        <div class="stat-label">最终得分</div>
+                        <div class="stat-value" id="finalScore">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">存活时间</div>
+                        <div class="stat-value">
+                            <span id="survivalTime">0</span>秒
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">击败玩家</div>
+                        <div class="stat-value" id="defeatedPlayers">0</div>
+                    </div>
+                </div>
+                <div class="game-over-actions">
+                    <button id="restartBtn" class="restart-button">
+                        <span class="button-text">重新开始</span>
+                        <div class="button-effects"></div>
+                    </button>
+                    <button id="homeBtn" class="home-button">
+                        <span class="button-text">返回主页</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 游戏设置 -->
+        <div id="settingsPanel" style="display: none;">
+            <div class="settings-content">
+                <h3>游戏设置</h3>
+                <div class="settings-group">
+                    <label class="setting-item">
+                        <span>图形质量</span>
+                        <select id="graphicsQuality">
+                            <option value="low">低</option>
+                            <option value="medium" selected>中</option>
+                            <option value="high">高</option>
+                        </select>
+                    </label>
+                    <label class="setting-item">
+                        <span>粒子效果</span>
+                        <input type="checkbox" id="particleEffects" checked>
+                    </label>
+                    <label class="setting-item">
+                        <span>显示网格</span>
+                        <input type="checkbox" id="showGrid" checked>
+                    </label>
+                    <label class="setting-item">
+                        <span>声音效果</span>
+                        <input type="checkbox" id="soundEffects" checked>
+                    </label>
+                </div>
+                <button id="closeSettings" class="close-button">关闭</button>
+            </div>
+        </div>
+        
+        <!-- 暂停菜单 -->
+        <div id="pauseMenu" style="display: none;">
+            <div class="pause-content">
+                <h3>游戏暂停</h3>
+                <button id="resumeBtn" class="resume-button">继续游戏</button>
+                <button id="quitBtn" class="quit-button">退出游戏</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
