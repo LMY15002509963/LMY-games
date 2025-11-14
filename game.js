@@ -997,12 +997,12 @@ class Game {
         // 检查碰撞
         this.checkCollisions();
         
-        // 补充食物 - 根据世界大小调整，增加刷新频率
-        const maxFoodCount = this.settings.graphicsQuality === 'high' ? 1200 : 
-                            this.settings.graphicsQuality === 'medium' ? 900 : 600;
+        // 补充食物 - 优化数量和频率以提升性能
+        const maxFoodCount = this.settings.graphicsQuality === 'high' ? 800 : 
+                            this.settings.graphicsQuality === 'medium' ? 600 : 400;
         const targetFoodCount = Math.floor(maxFoodCount * (this.world.width * this.world.height) / (4000 * 4000));
         
-        if (Math.random() < 0.08 && this.foods.length < targetFoodCount) { // 提高补充频率
+        if (Math.random() < 0.04 && this.foods.length < targetFoodCount) { // 降低补充频率
             // 只生成可见区域附近的食物
             const centerX = this.camera.x + this.canvas.width / 2;
             const centerY = this.camera.y + this.canvas.height / 2;
@@ -1185,64 +1185,60 @@ class Game {
     
     updateAI(aiPlayer) {
         aiPlayer.aiUpdateCounter++;
-        if (aiPlayer.aiUpdateCounter % 15 !== 0) return; // 进一步提高AI更新频率
+        if (aiPlayer.aiUpdateCounter % 30 !== 0) return; // 降低AI更新频率以提升性能
         
         const mainPart = aiPlayer.parts[0];
         
-        // 大幅增强威胁检测范围和准确性
+        // 优化AI计算，减少循环和计算量
         let threats = [];
-        const threatRange = mainPart.radius * 10; // 大幅增加威胁检测范围
+        const threatRange = mainPart.radius * 6;
+        const threatRangeSq = threatRange * threatRange; // 使用平方距离避免开方运算
         
+        // 检查玩家威胁（优化版本）
         if (this.player) {
-            this.player.parts.forEach(part => {
-                const distance = Math.sqrt(
-                    Math.pow(part.x - mainPart.x, 2) + 
-                    Math.pow(part.y - mainPart.y, 2)
-                );
-                if (part.radius > mainPart.radius * 1.1 && distance < threatRange) {
-                    // 计算威胁等级，更精确的评估
+            for (const part of this.player.parts) {
+                const dx = part.x - mainPart.x;
+                const dy = part.y - mainPart.y;
+                const distanceSq = dx * dx + dy * dy;
+                
+                if (part.radius > mainPart.radius * 1.1 && distanceSq < threatRangeSq) {
+                    const distance = Math.sqrt(distanceSq);
                     const threatLevel = (part.radius / mainPart.radius) * (1 - distance / threatRange);
-                    // 考虑速度向量进行威胁预测
-                    let speedBonus = 0;
-                    if (part.velocityX && part.velocityY) {
-                        const speed = Math.sqrt(part.velocityX * part.velocityX + part.velocityY * part.velocityY);
-                        speedBonus = Math.min(0.3, speed / 20);
-                    }
+                    
                     threats.push({ 
                         player: part, 
                         distance: distance, 
                         type: 'player',
-                        threatLevel: threatLevel + speedBonus
+                        threatLevel: threatLevel
                     });
                 }
-            });
+            }
         }
         
-        // 检查其他AI威胁，也考虑速度预测
-        this.players.forEach(otherAI => {
+        // 检查其他AI威胁（限制检查数量）
+        const maxAIToCheck = Math.min(this.players.length, 5);
+        for (let i = 0; i < maxAIToCheck; i++) {
+            const otherAI = this.players[i];
             if (otherAI !== aiPlayer) {
-                otherAI.parts.forEach(part => {
-                    const distance = Math.sqrt(
-                        Math.pow(part.x - mainPart.x, 2) + 
-                        Math.pow(part.y - mainPart.y, 2)
-                    );
-                    if (part.radius > mainPart.radius * 1.1 && distance < threatRange) {
+                for (const part of otherAI.parts) {
+                    const dx = part.x - mainPart.x;
+                    const dy = part.y - mainPart.y;
+                    const distanceSq = dx * dx + dy * dy;
+                    
+                    if (part.radius > mainPart.radius * 1.1 && distanceSq < threatRangeSq) {
+                        const distance = Math.sqrt(distanceSq);
                         const threatLevel = (part.radius / mainPart.radius) * (1 - distance / threatRange);
-                        let speedBonus = 0;
-                        if (part.velocityX && part.velocityY) {
-                            const speed = Math.sqrt(part.velocityX * part.velocityX + part.velocityY * part.velocityY);
-                            speedBonus = Math.min(0.3, speed / 15);
-                        }
+                        
                         threats.push({ 
                             player: part, 
                             distance: distance, 
                             type: 'ai',
-                            threatLevel: threatLevel + speedBonus
+                            threatLevel: threatLevel
                         });
                     }
-                });
+                }
             }
-        });
+        }
         
         // 如果有威胁，超智能逃跑
         if (threats.length > 0) {
@@ -2179,16 +2175,25 @@ class Game {
     }
     
     checkCollisions() {
+        // 优化碰撞检测 - 使用空间分区和减少计算量
+        const maxFoodCheck = 50; // 限制每帧检查的食物数量
+        
         // 玩家吃食物
         if (this.player) {
-            this.player.parts.forEach(part => {
-                this.foods = this.foods.filter(food => {
-                    const distance = Math.sqrt(
-                        Math.pow(food.x - part.x, 2) + 
-                        Math.pow(food.y - part.y, 2)
-                    );
+            let foodChecked = 0;
+            const newFoods = [];
+            
+            for (let i = 0; i < this.foods.length && foodChecked < maxFoodCheck; i++) {
+                const food = this.foods[i];
+                let eaten = false;
+                
+                for (const part of this.player.parts) {
+                    const dx = food.x - part.x;
+                    const dy = food.y - part.y;
+                    const distanceSq = dx * dx + dy * dy;
+                    const totalRadius = part.radius + food.radius;
                     
-                    if (distance < part.radius + food.radius) {
+                    if (distanceSq < totalRadius * totalRadius) {
                         part.radius = Math.sqrt(part.radius * part.radius + food.radius * food.radius);
                         this.player.score += Math.floor(food.radius * 2);
                         
@@ -2202,31 +2207,58 @@ class Game {
                             this.createEatEffect(food.x, food.y, food.color);
                         }
                         
-                        return false;
+                        eaten = true;
+                        break;
                     }
-                    return true;
-                });
-            });
+                }
+                
+                if (!eaten) {
+                    newFoods.push(food);
+                }
+                foodChecked++;
+            }
+            
+            // 保留未检查的食物
+            newFoods.push(...this.foods.slice(maxFoodCheck));
+            this.foods = newFoods;
         }
         
-        // AI玩家吃食物
-        this.players.forEach(player => {
-            player.parts.forEach(part => {
-                this.foods = this.foods.filter(food => {
-                    const distance = Math.sqrt(
-                        Math.pow(food.x - part.x, 2) + 
-                        Math.pow(food.y - part.y, 2)
-                    );
+        // AI玩家吃食物（限制检查数量）
+        const maxAIPlayers = 5; // 限制处理的AI玩家数量
+        const AIPlayersToProcess = this.players.slice(0, maxAIPlayers);
+        
+        for (const player of AIPlayersToProcess) {
+            let foodChecked = 0;
+            const newFoods = [];
+            
+            for (let i = 0; i < this.foods.length && foodChecked < 30; i++) {
+                const food = this.foods[i];
+                let eaten = false;
+                
+                for (const part of player.parts) {
+                    const dx = food.x - part.x;
+                    const dy = food.y - part.y;
+                    const distanceSq = dx * dx + dy * dy;
+                    const totalRadius = part.radius + food.radius;
                     
-                    if (distance < part.radius + food.radius) {
+                    if (distanceSq < totalRadius * totalRadius) {
                         part.radius = Math.sqrt(part.radius * part.radius + food.radius * food.radius);
                         player.score += Math.floor(food.radius * 2);
-                        return false;
+                        eaten = true;
+                        break;
                     }
-                    return true;
-                });
-            });
-        });
+                }
+                
+                if (!eaten) {
+                    newFoods.push(food);
+                }
+                foodChecked++;
+            }
+            
+            // 只更新AI玩家检查的食物部分
+            const remainingFoods = this.foods.slice(30);
+            this.foods = [...newFoods, ...remainingFoods];
+        }
         
         // 玩家之间的碰撞
         this.checkPlayerCollisions();
@@ -2345,34 +2377,40 @@ class Game {
     }
     
     updateUI() {
-        if (!this.player) return;
+        // 降低UI更新频率
+        if (this.frameCount % 5 !== 0 || !this.player) return;
         
         // 更新分数和质量
         document.getElementById('score').textContent = this.player.score;
         document.getElementById('mass').textContent = Math.floor(this.player.mass);
         
-        // 计算排名
-        const allPlayers = this.players.slice(); // 本地AI玩家
-        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
-            allPlayers.push(...this.serverAIPlayers); // 服务器AI玩家
+        // 降低排名更新频率
+        if (this.frameCount % 10 === 0) {
+            // 计算排名（限制处理数量）
+            const allPlayers = this.players.slice(0, 8); // 限制AI玩家数量
+            if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+                allPlayers.push(...this.serverAIPlayers.slice(0, 8));
+            }
+            if (this.player) {
+                allPlayers.push(this.player);
+            }
+            allPlayers.sort((a, b) => b.score - a.score);
+            const rank = allPlayers.findIndex(p => p === this.player) + 1;
+            document.getElementById('rank').textContent = rank;
+            
+            // 更新排行榜
+            this.updateLeaderboard(allPlayers.slice(0, 10));
         }
-        if (this.player) {
-            allPlayers.push(this.player);
-        }
-        allPlayers.sort((a, b) => b.score - a.score);
-        const rank = allPlayers.findIndex(p => p === this.player) + 1;
-        document.getElementById('rank').textContent = rank;
         
-        // 更新排行榜
-        this.updateLeaderboard(allPlayers.slice(0, 10));
-        
-        // 更新在线人数
-        let totalOnlineCount = this.players.length;
-        if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
-            totalOnlineCount += this.serverAIPlayers.length;
+        // 降低在线人数更新频率
+        if (this.frameCount % 20 === 0) {
+            let totalOnlineCount = this.players.length;
+            if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
+                totalOnlineCount += this.serverAIPlayers.length;
+            }
+            totalOnlineCount += 1; // 加上玩家自己
+            document.getElementById('onlineCount').textContent = totalOnlineCount;
         }
-        totalOnlineCount += 1; // 加上玩家自己
-        document.getElementById('onlineCount').textContent = totalOnlineCount;
     }
     
     updateLeaderboard(topPlayers) {
@@ -2451,8 +2489,8 @@ class Game {
                    food.y < this.camera.y + this.canvas.height + 100;
         });
         
-        // 绘制网格（降低频率）
-        if (this.settings.showGrid && this.frameCount % 2 === 0) {
+        // 绘制网格（进一步降低频率）
+        if (this.settings.showGrid && this.frameCount % 4 === 0) {
             this.drawGrid();
         }
         
@@ -2493,9 +2531,9 @@ class Game {
             this.drawPlayer(this.player);
         }
         
-        // 限制粒子数量
-        if (this.settings.particleEffects && this.particles.length > 0) {
-            const maxParticles = 50;
+        // 限制粒子数量和更新频率
+        if (this.settings.particleEffects && this.particles.length > 0 && this.frameCount % 2 === 0) {
+            const maxParticles = 30;
             const particlesToRender = this.particles.slice(0, maxParticles);
             particlesToRender.forEach(particle => {
                 this.drawParticle(particle);
@@ -2505,8 +2543,8 @@ class Game {
         // 恢复上下文状态
         this.ctx.restore();
         
-        // 绘制小地图（降低更新频率）
-        if (this.frameCount % 3 === 0) {
+        // 绘制小地图（进一步降低更新频率）
+        if (this.frameCount % 8 === 0) {
             this.renderMinimap();
         }
         
@@ -2651,6 +2689,26 @@ class Game {
     }
     
     drawCuteBear(part) {
+        // 降低动画更新频率
+        if (this.frameCount % 3 !== 0) {
+            // 简单绘制版本
+            const gradient = this.ctx.createRadialGradient(
+                part.x - part.radius * 0.3, 
+                part.y - part.radius * 0.3, 
+                0,
+                part.x, part.y, part.radius
+            );
+            gradient.addColorStop(0, this.lightenColor(this.player.color, 30));
+            gradient.addColorStop(0.7, this.player.color);
+            gradient.addColorStop(1, this.darkenColor(this.player.color, 20));
+            
+            this.ctx.fillStyle = gradient;
+            this.ctx.beginPath();
+            this.ctx.arc(part.x, part.y, part.radius, 0, Math.PI * 2);
+            this.ctx.fill();
+            return;
+        }
+        
         const radius = part.radius;
         const bounce = Math.sin(this.animationFrame * 0.05) * 2;
         
@@ -2718,8 +2776,8 @@ class Game {
         this.ctx.ellipse(part.x + radius * 0.3, part.y + radius * 0.8 - footOffset, radius * 0.2, radius * 0.15, 0, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // 绘制发光效果
-        if (this.settings.particleEffects) {
+        // 绘制发光效果（降低频率）
+        if (this.settings.particleEffects && this.frameCount % 5 === 0) {
             this.ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
             this.ctx.shadowBlur = 10;
             this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
@@ -2899,8 +2957,8 @@ class Game {
         const now = performance.now();
         const deltaTime = now - this.lastFrameTime;
         
-        // 限制帧率到60FPS
-        if (deltaTime >= 16.67) { // 1000/60 = 16.67ms
+        // 限制帧率到50FPS以提升性能
+        if (deltaTime >= 20) { // 1000/50 = 20ms
             this.updateGame();
             this.render();
             this.lastFrameTime = now;
