@@ -113,9 +113,12 @@ class Game {
             window.AudioContext = window.AudioContext || window.webkitAudioContext;
             this.audioContext = new AudioContext();
             
-            // 创建音效
-            this.createSounds();
-        } catch (e) {
+        // 创建音效
+        this.createSounds();
+        
+        // 添加合并音效
+        this.sounds.merge = () => this.playTone(550, 0.15, 0.2);
+    } catch (e) {
             console.log('Web Audio API not supported:', e);
         }
     }
@@ -996,6 +999,16 @@ class Game {
         
         // 检查碰撞
         this.checkCollisions();
+        
+        // 检查球球合并
+        if (this.player) {
+            this.checkPlayerMerge(this.player);
+        }
+        
+        // 检查AI玩家合并
+        this.players.forEach(player => {
+            this.checkPlayerMerge(player);
+        });
         
         // 补充食物 - 优化数量和频率以提升性能
         const maxFoodCount = this.settings.graphicsQuality === 'high' ? 800 : 
@@ -2174,6 +2187,86 @@ class Game {
         });
     }
     
+    checkPlayerMerge(player) {
+        // 检查玩家自己的球球是否可以合并
+        if (player.parts.length <= 1) return;
+        
+        const mergedParts = [];
+        const mergeDistance = 15; // 合并距离阈值
+        let merged = false;
+        
+        // 检查每对球球是否可以合并
+        for (let i = 0; i < player.parts.length; i++) {
+            if (mergedParts.includes(i)) continue;
+            
+            let currentPart = player.parts[i];
+            let shouldMerge = false;
+            let totalArea = currentPart.radius * currentPart.radius;
+            
+            // 寻找可以合并的相邻球球
+            for (let j = i + 1; j < player.parts.length; j++) {
+                if (mergedParts.includes(j)) continue;
+                
+                const otherPart = player.parts[j];
+                const dx = otherPart.x - currentPart.x;
+                const dy = otherPart.y - currentPart.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // 如果球球很近且速度都很低，则可以合并
+                const speed1 = Math.sqrt(currentPart.vx * currentPart.vx + currentPart.vy * currentPart.vy);
+                const speed2 = Math.sqrt(otherPart.vx * otherPart.vx + otherPart.vy * otherPart.vy);
+                
+                if (distance < currentPart.radius + otherPart.radius + mergeDistance && 
+                    speed1 < 2 && speed2 < 2) {
+                    
+                    // 合并球球
+                    totalArea += otherPart.radius * otherPart.radius;
+                    currentPart.x = (currentPart.x * currentPart.radius + otherPart.x * otherPart.radius) / (currentPart.radius + otherPart.radius);
+                    currentPart.y = (currentPart.y * currentPart.radius + otherPart.y * otherPart.radius) / (currentPart.radius + otherPart.radius);
+                    currentPart.radius = Math.sqrt(totalArea);
+                    currentPart.vx = 0;
+                    currentPart.vy = 0;
+                    
+                    mergedParts.push(j);
+                    shouldMerge = true;
+                    merged = true;
+                    
+                    // 创建合并粒子效果
+                    if (this.settings.particleEffects && player === this.player) {
+                        this.createMergeEffect(currentPart.x, currentPart.y, player.color);
+                    }
+                }
+            }
+        }
+        
+        // 移除已合并的球球
+        if (merged) {
+            player.parts = player.parts.filter((part, index) => !mergedParts.includes(index));
+            
+            // 播放合并音效
+            if (player === this.player && this.sounds.merge) {
+                this.sounds.merge();
+            }
+        }
+    }
+    
+    createMergeEffect(x, y, color) {
+        for (let i = 0; i < 8; i++) {
+            const angle = (Math.PI * 2 * i) / 8;
+            const speed = Math.random() * 3 + 1;
+            this.particles.push({
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                radius: Math.random() * 2 + 1,
+                color: color,
+                life: 1.0,
+                decay: 0.025
+            });
+        }
+    }
+    
     checkCollisions() {
         // 优化碰撞检测 - 使用空间分区和减少计算量
         const maxFoodCheck = 50; // 限制每帧检查的食物数量
@@ -2469,7 +2562,7 @@ class Game {
     }
     
     render() {
-        // 清空画布 - 优化清空方式
+        // 清空画布 - 使用更高效的清空方式
         this.ctx.fillStyle = '#0a0a0a';
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         
@@ -2481,70 +2574,73 @@ class Game {
         // 应用相机变换
         this.ctx.translate(-this.camera.x, -this.camera.y);
         
-        // 只渲染可见区域内的食物 - 视锥剔除
-        const visibleFoods = this.foods.filter(food => {
-            return food.x > this.camera.x - 100 && 
-                   food.x < this.camera.x + this.canvas.width + 100 &&
-                   food.y > this.camera.y - 100 && 
-                   food.y < this.camera.y + this.canvas.height + 100;
-        });
+        // 优化可见区域计算
+        const viewBounds = {
+            left: this.camera.x - 50,
+            right: this.camera.x + this.canvas.width + 50,
+            top: this.camera.y - 50,
+            bottom: this.camera.y + this.canvas.height + 50
+        };
         
-        // 绘制网格（进一步降低频率）
-        if (this.settings.showGrid && this.frameCount % 4 === 0) {
+        // 只渲染可见区域内的食物 - 优化视锥剔除
+        const visibleFoods = this.foods.filter(food => 
+            food.x > viewBounds.left && food.x < viewBounds.right &&
+            food.y > viewBounds.top && food.y < viewBounds.bottom
+        );
+        
+        // 绘制网格
+        if (this.settings.showGrid) {
             this.drawGrid();
         }
         
-        // 绘制食物
-        visibleFoods.forEach(food => {
-            this.drawFood(food);
-        });
+        // 批量绘制食物
+        if (visibleFoods.length > 0) {
+            visibleFoods.forEach(food => this.drawFood(food));
+        }
         
         // 绘制发射的小球
         if (this.ejectedBalls && this.ejectedBalls.length > 0) {
-            this.ejectedBalls.forEach(ball => {
-                this.drawEjectedBall(ball);
-            });
+            this.ejectedBalls.forEach(ball => this.drawEjectedBall(ball));
         }
         
-        // 绘制所有玩家
+        // 获取所有可见玩家并批量渲染
         const allPlayers = this.players.slice();
         if (this.serverAIPlayers && this.serverAIPlayers.length > 0) {
             allPlayers.push(...this.serverAIPlayers);
         }
         
         // 只绘制可见玩家
-        const visiblePlayers = allPlayers.filter(player => {
-            return player.parts.some(part => 
-                part.x > this.camera.x - 200 && 
-                part.x < this.camera.x + this.canvas.width + 200 &&
-                part.y > this.camera.y - 200 && 
-                part.y < this.camera.y + this.canvas.height + 200
-            );
-        });
+        const visiblePlayers = allPlayers.filter(player => 
+            player.parts.some(part => 
+                part.x > viewBounds.left - 100 && 
+                part.x < viewBounds.right + 100 &&
+                part.y > viewBounds.top - 100 && 
+                part.y < viewBounds.bottom + 100
+            )
+        );
         
-        visiblePlayers.forEach(player => {
-            this.drawPlayer(player);
-        });
+        // 批量绘制AI玩家
+        if (visiblePlayers.length > 0) {
+            visiblePlayers.forEach(player => this.drawPlayer(player));
+        }
         
         // 绘制玩家
         if (this.player) {
             this.drawPlayer(this.player);
         }
         
-        // 限制粒子数量和更新频率
-        if (this.settings.particleEffects && this.particles.length > 0 && this.frameCount % 2 === 0) {
-            const maxParticles = 30;
+        // 优化粒子渲染
+        if (this.settings.particleEffects && this.particles.length > 0) {
+            const maxParticles = 40;
             const particlesToRender = this.particles.slice(0, maxParticles);
-            particlesToRender.forEach(particle => {
-                this.drawParticle(particle);
-            });
+            particlesToRender.forEach(particle => this.drawParticle(particle));
         }
         
         // 恢复上下文状态
         this.ctx.restore();
         
-        // 绘制小地图（进一步降低更新频率）
-        if (this.frameCount % 8 === 0) {
+        // 绘制小地图（优化更新频率）
+        if (this.frameCount % 3 === 0) {
             this.renderMinimap();
         }
         
@@ -2689,103 +2785,61 @@ class Game {
     }
     
     drawCuteBear(part) {
-        // 降低动画更新频率
-        if (this.frameCount % 3 !== 0) {
-            // 简单绘制版本
+        // 完全重写小熊渲染以提高性能
+        const radius = part.radius;
+        
+        // 简化的动画帧检测
+        const animFrame = Math.floor(this.animationFrame / 3);
+        const bounce = Math.sin(animFrame * 0.05) * 2;
+        
+        // 如果球太小，使用简单渲染
+        if (radius < 25) {
             const gradient = this.ctx.createRadialGradient(
-                part.x - part.radius * 0.3, 
-                part.y - part.radius * 0.3, 
+                part.x - radius * 0.3, 
+                part.y - radius * 0.3, 
                 0,
-                part.x, part.y, part.radius
+                part.x, part.y, radius
             );
-            gradient.addColorStop(0, this.lightenColor(this.player.color, 30));
-            gradient.addColorStop(0.7, this.player.color);
-            gradient.addColorStop(1, this.darkenColor(this.player.color, 20));
+            gradient.addColorStop(0, this.lightenColor('#8B4513', 30));
+            gradient.addColorStop(0.7, '#8B4513');
+            gradient.addColorStop(1, this.darkenColor('#8B4513', 20));
             
             this.ctx.fillStyle = gradient;
             this.ctx.beginPath();
-            this.ctx.arc(part.x, part.y, part.radius, 0, Math.PI * 2);
+            this.ctx.arc(part.x, part.y + bounce, radius, 0, Math.PI * 2);
             this.ctx.fill();
             return;
         }
         
-        const radius = part.radius;
-        const bounce = Math.sin(this.animationFrame * 0.05) * 2;
-        
-        // 绘制熊身体
+        // 只在大球时绘制完整的小熊
         this.ctx.fillStyle = '#8B4513';
         this.ctx.beginPath();
-        this.ctx.ellipse(part.x, part.y + bounce, radius * 0.9, radius, 0, 0, Math.PI * 2);
+        this.ctx.arc(part.x, part.y + bounce, radius, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // 绘制熊耳朵
-        const earSize = radius * 0.3;
-        this.ctx.fillStyle = '#6B3410';
-        // 左耳
-        this.ctx.beginPath();
-        this.ctx.ellipse(part.x - radius * 0.6, part.y - radius * 0.7 + bounce, earSize, earSize * 1.2, -0.3, 0, Math.PI * 2);
-        this.ctx.fill();
-        // 右耳
-        this.ctx.beginPath();
-        this.ctx.ellipse(part.x + radius * 0.6, part.y - radius * 0.7 + bounce, earSize, earSize * 1.2, 0.3, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        // 绘制熊脸
+        // 简化的脸部特征
         this.ctx.fillStyle = '#D2691E';
         this.ctx.beginPath();
-        this.ctx.ellipse(part.x, part.y + bounce, radius * 0.7, radius * 0.6, 0, 0, Math.PI * 2);
+        this.ctx.arc(part.x, part.y + bounce, radius * 0.6, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // 绘制眼睛
-        const eyeBlink = Math.sin(this.animationFrame * 0.1) > 0.95 ? 0.2 : 1;
+        // 简化的眼睛
         this.ctx.fillStyle = '#000000';
-        // 左眼
+        const eyeBlink = animFrame % 20 > 18 ? 0.2 : 1;
         this.ctx.beginPath();
-        this.ctx.ellipse(part.x - radius * 0.2, part.y - radius * 0.1 + bounce, radius * 0.08 * eyeBlink, radius * 0.12 * eyeBlink, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(part.x - radius * 0.2, part.y - radius * 0.1 + bounce, radius * 0.05 * eyeBlink, radius * 0.08 * eyeBlink, 0, 0, Math.PI * 2);
         this.ctx.fill();
-        // 右眼
         this.ctx.beginPath();
-        this.ctx.ellipse(part.x + radius * 0.2, part.y - radius * 0.1 + bounce, radius * 0.08 * eyeBlink, radius * 0.12 * eyeBlink, 0, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        // 绘制鼻子
-        this.ctx.fillStyle = '#000000';
-        this.ctx.beginPath();
-        this.ctx.ellipse(part.x, part.y + radius * 0.1 + bounce, radius * 0.06, radius * 0.04, 0, 0, Math.PI * 2);
+        this.ctx.ellipse(part.x + radius * 0.2, part.y - radius * 0.1 + bounce, radius * 0.05 * eyeBlink, radius * 0.08 * eyeBlink, 0, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // 绘制嘴巴（动画效果）
-        this.ctx.strokeStyle = '#000000';
-        this.ctx.lineWidth = 2;
-        this.ctx.beginPath();
-        const smileRadius = radius * 0.15;
-        const smileAngle = Math.sin(this.animationFrame * 0.08) * 0.3;
-        this.ctx.arc(part.x, part.y + radius * 0.15 + bounce, smileRadius, smileAngle, Math.PI - smileAngle);
-        this.ctx.stroke();
-        
-        // 绘制小脚（走路动画）
-        const walkCycle = Math.sin(this.animationFrame * 0.1);
-        const footOffset = walkCycle * 5;
-        this.ctx.fillStyle = '#6B3410';
-        // 左脚
-        this.ctx.beginPath();
-        this.ctx.ellipse(part.x - radius * 0.3, part.y + radius * 0.8 + footOffset, radius * 0.2, radius * 0.15, 0, 0, Math.PI * 2);
-        this.ctx.fill();
-        // 右脚
-        this.ctx.beginPath();
-        this.ctx.ellipse(part.x + radius * 0.3, part.y + radius * 0.8 - footOffset, radius * 0.2, radius * 0.15, 0, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        // 绘制发光效果（降低频率）
-        if (this.settings.particleEffects && this.frameCount % 5 === 0) {
-            this.ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-            this.ctx.shadowBlur = 10;
-            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-            this.ctx.lineWidth = 3;
+        // 简化的发光效果
+        if (this.settings.particleEffects && animFrame % 10 === 0) {
+            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            this.ctx.lineWidth = 2;
             this.ctx.beginPath();
-            this.ctx.arc(part.x, part.y + bounce, radius + 5, 0, Math.PI * 2);
+            this.ctx.arc(part.x, part.y + bounce, radius + 3, 0, Math.PI * 2);
             this.ctx.stroke();
-            this.ctx.shadowBlur = 0;
         }
     }
     
@@ -2957,11 +3011,18 @@ class Game {
         const now = performance.now();
         const deltaTime = now - this.lastFrameTime;
         
-        // 限制帧率到50FPS以提升性能
-        if (deltaTime >= 20) { // 1000/50 = 20ms
+        // 提高帧率到60FPS，移除严格限制让性能自适应
+        if (deltaTime >= 16.67) { // 1000/60 = 16.67ms
             this.updateGame();
             this.render();
             this.lastFrameTime = now;
+            
+            // 更新FPS计数器
+            this.frameCount++;
+            if (this.frameCount % 30 === 0) {
+                const fps = Math.round(1000 / deltaTime);
+                document.getElementById('fps').textContent = fps;
+            }
         }
         
         requestAnimationFrame(() => this.gameLoop());
