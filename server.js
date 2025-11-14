@@ -533,6 +533,22 @@ io.on('connection', (socket) => {
         
         playerRooms.delete(socket.id);
     });
+    
+    // 聊天消息
+    socket.on('chatMessage', (data) => {
+        const roomId = playerRooms.get(socket.id);
+        if (roomId) {
+            const room = rooms.get(roomId);
+            if (room) {
+                // 广播聊天消息给房间内所有玩家
+                io.to(roomId).emit('chatMessage', {
+                    playerName: data.playerName,
+                    message: data.message,
+                    timestamp: new Date()
+                });
+            }
+        }
+    });
 });
 
 // 游戏循环

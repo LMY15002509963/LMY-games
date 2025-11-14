@@ -561,6 +561,90 @@ kbd {
     font-family: monospace;
 }
 
+/* 聊天界面 */
+.chat-container {
+    position: absolute;
+    bottom: 25px;
+    left: 25px;
+    width: 300px;
+    max-height: 200px;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 10px;
+    overflow-y: auto;
+    min-height: 120px;
+    max-height: 120px;
+}
+
+.chat-message {
+    margin: 5px 0;
+    padding: 5px 8px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 5px;
+    word-wrap: break-word;
+}
+
+.chat-message .player-name {
+    color: #4ecdc4;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.chat-message .message-text {
+    color: white;
+    font-size: 0.9em;
+}
+
+.chat-input-container {
+    display: flex;
+    padding: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#chatInput {
+    flex: 1;
+    padding: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    font-size: 0.9em;
+    margin-right: 5px;
+}
+
+#chatInput::placeholder {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+#chatInput:focus {
+    outline: none;
+    border-color: #4ecdc4;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+#chatSendBtn {
+    padding: 8px 15px;
+    background: #4ecdc4;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.3s ease;
+}
+
+#chatSendBtn:hover {
+    background: #45b7d1;
+}
+
 /* 游戏结束 */
 #gameOver {
     position: absolute;

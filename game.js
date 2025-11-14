@@ -52,6 +52,23 @@ class Game {
             soundEffects: true
         };
         
+        // 音效系统
+        this.audioContext = null;
+        this.soundEnabled = true;
+        this.sounds = {};
+        
+        // 聊天系统
+        this.chatMessages = [];
+        this.maxChatMessages = 10;
+        this.chatInput = null;
+        
+        // 动画系统
+        this.animationFrame = 0;
+        
+        // 聊天系统
+        this.chatMessages = [];
+        this.maxChatMessages = 10;
+        
         // 颜色方案
         this.colors = [
             '#ff6b6b', '#4ecdc4', '#45b7d1', '#f7dc6f', 
@@ -65,6 +82,8 @@ class Game {
         this.mouseWorldPos = { x: 0, y: 0 };
         this.mouseDown = false;
         this.mouseUpdateTime = 0;
+        this.lastMouseMovedTime = 0;
+        this.mouseStationary = false;
         
         // 缓存对象
         this.objectPool = {
@@ -73,6 +92,7 @@ class Game {
         };
         
         this.init();
+        this.initAudio();
     }
     
     init() {
@@ -86,6 +106,68 @@ class Game {
         this.gameLoop();
         
         console.log('游戏初始化完成');
+    }
+    
+    initAudio() {
+        try {
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.audioContext = new AudioContext();
+            
+            // 创建音效
+            this.createSounds();
+        } catch (e) {
+            console.log('Web Audio API not supported:', e);
+        }
+    }
+    
+    createSounds() {
+        if (!this.audioContext) return;
+        
+        // 吃食物音效
+        this.sounds.eat = () => this.playTone(440, 0.1, 0.1);
+        
+        // 分裂音效
+        this.sounds.split = () => this.playTone(660, 0.2, 0.2);
+        
+        // 发射质量音效
+        this.sounds.eject = () => this.playTone(330, 0.15, 0.1);
+        
+        // 升级音效
+        this.sounds.levelUp = () => this.playMelody([523, 659, 784], 0.1);
+        
+        // 游戏结束音效
+        this.sounds.gameOver = () => this.playMelody([392, 349, 330, 294], 0.3);
+    }
+    
+    playTone(frequency, duration, volume = 0.3) {
+        if (!this.audioContext || !this.soundEnabled) return;
+        
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+        
+        oscillator.frequency.value = frequency;
+        oscillator.type = 'sine';
+        
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(volume, this.audioContext.currentTime + 0.01);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + duration);
+        
+        oscillator.start(this.audioContext.currentTime);
+        oscillator.stop(this.audioContext.currentTime + duration);
+    }
+    
+    playMelody(frequencies, noteDuration) {
+        frequencies.forEach((freq, index) => {
+            setTimeout(() => this.playTone(freq, noteDuration, 0.3), index * noteDuration * 200);
+        });
+    }
+    
+    toggleSound() {
+        this.soundEnabled = !this.soundEnabled;
+        return this.soundEnabled;
     }
     
     initNetwork() {
@@ -222,6 +304,11 @@ class Game {
                 this.player.mass = serverPlayer.mass;
             }
         });
+        
+        // 接收聊天消息
+        this.socket.on('chatMessage', (data) => {
+            this.addChatMessage(data.playerName, data.message);
+        });
     }
     
     hideLoadingScreen() {
@@ -337,6 +424,8 @@ class Game {
                 this.mouseWorldPos.x = canvasX + this.camera.x;
                 this.mouseWorldPos.y = canvasY + this.camera.y;
                 this.mouseUpdateTime = performance.now();
+                this.lastMouseMovedTime = performance.now();
+                this.mouseStationary = false;
                 
                 // 立即更新玩家目标位置，提高响应性
                 this.player.targetX = this.mouseWorldPos.x;
@@ -464,6 +553,12 @@ class Game {
             this.settings.showGrid = e.target.checked;
         });
         
+        document.getElementById('soundEffects').addEventListener('change', (e) => {
+            console.log(`Sound effects: ${e.target.checked}`);
+            this.settings.soundEffects = e.target.checked;
+            this.soundEnabled = e.target.checked;
+        });
+        
         // 暂停菜单
         document.getElementById('resumeBtn').addEventListener('click', () => {
             console.log("Resume button clicked");
@@ -482,7 +577,87 @@ class Game {
             }
         });
         
+        // 聊天系统事件
+        this.setupChatEvents();
+        
         console.log("All event listeners set up");
+    }
+    
+    setupChatEvents() {
+        const chatInput = document.getElementById('chatInput');
+        const chatSendBtn = document.getElementById('chatSendBtn');
+        
+        // 发送聊天消息
+        const sendMessage = () => {
+            const message = chatInput.value.trim();
+            if (message && this.player && this.gameState === 'playing') {
+                this.addChatMessage(this.player.name, message);
+                chatInput.value = '';
+                
+                // 如果是多人模式，发送到服务器
+                if (this.isMultiplayer && this.socket) {
+                    this.socket.emit('chatMessage', {
+                        playerId: this.playerId,
+                        playerName: this.player.name,
+                        message: message
+                    });
+                }
+            }
+        };
+        
+        // 发送按钮点击
+        chatSendBtn.addEventListener('click', sendMessage);
+        
+        // 输入框回车键
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // 游戏内输入快捷键（按Enter激活聊天）
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && this.gameState === 'playing' && !this.isPaused) {
+                e.preventDefault();
+                chatInput.focus();
+            }
+        });
+    }
+    
+    addChatMessage(playerName, message) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageElement = document.createElement('div');
+        messageElement.className = 'chat-message';
+        
+        const now = new Date();
+        const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        
+        messageElement.innerHTML = `
+            <span class="player-name">${playerName}:</span>
+            <span class="message-text">${message}</span>
+        `;
+        
+        chatMessages.appendChild(messageElement);
+        
+        // 限制消息数量
+        while (chatMessages.children.length > this.maxChatMessages) {
+            chatMessages.removeChild(chatMessages.firstChild);
+        }
+        
+        // 滚动到底部
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        // 保存到消息数组
+        this.chatMessages.push({
+            playerName: playerName,
+            message: message,
+            timestamp: now
+        });
+        
+        // 限制数组长度
+        if (this.chatMessages.length > this.maxChatMessages) {
+            this.chatMessages.shift();
+        }
     }
     
     startGame(playerName) {
@@ -648,6 +823,11 @@ class Game {
                 if (this.settings.particleEffects) {
                     this.createSplitEffect(part.x, part.y, part.color);
                 }
+                
+                // 播放分裂音效
+                if (this.sounds.split) {
+                    this.sounds.split();
+                }
             }
         });
         
@@ -680,6 +860,11 @@ class Game {
                 // 添加到临时数组，稍后转换为食物
                 if (!this.ejectedBalls) this.ejectedBalls = [];
                 this.ejectedBalls.push(ejectBall);
+                
+                // 播放发射音效
+                if (this.sounds.eject) {
+                    this.sounds.eject();
+                }
             }
         });
     }
@@ -761,16 +946,25 @@ class Game {
     }
     
     updateGame() {
-        // 添加调试信息
-        console.log(`Game State: ${this.gameState}, IsPaused: ${this.isPaused}, Player exists: ${!!this.player}`);
+        // 移除频繁的调试信息
+        // console.log(`Game State: ${this.gameState}, IsPaused: ${this.isPaused}, Player exists: ${!!this.player}`);
         
         if (this.gameState !== 'playing' || this.isPaused) return;
+        
+        // 更新动画帧
+        this.animationFrame++;
+        
+        // 检查鼠标是否静止
+        const currentTime = performance.now();
+        if (currentTime - this.lastMouseMovedTime > 1000) {
+            this.mouseStationary = true;
+        }
         
         // 更新玩家
         if (this.player) {
             this.updatePlayer(this.player);
             this.updatePlayerParts(this.player);
-            console.log(`Player target: ${this.player.targetX}, ${this.player.targetY}`);
+            // console.log(`Player target: ${this.player.targetX}, ${this.player.targetY}`);
         }
         
         // 更新AI玩家
@@ -803,12 +997,12 @@ class Game {
         // 检查碰撞
         this.checkCollisions();
         
-        // 补充食物 - 根据世界大小调整
-        const maxFoodCount = this.settings.graphicsQuality === 'high' ? 800 : 
-                            this.settings.graphicsQuality === 'medium' ? 500 : 300;
+        // 补充食物 - 根据世界大小调整，增加刷新频率
+        const maxFoodCount = this.settings.graphicsQuality === 'high' ? 1200 : 
+                            this.settings.graphicsQuality === 'medium' ? 900 : 600;
         const targetFoodCount = Math.floor(maxFoodCount * (this.world.width * this.world.height) / (4000 * 4000));
         
-        if (Math.random() < 0.03 && this.foods.length < targetFoodCount) { // 降低补充频率
+        if (Math.random() < 0.08 && this.foods.length < targetFoodCount) { // 提高补充频率
             // 只生成可见区域附近的食物
             const centerX = this.camera.x + this.canvas.width / 2;
             const centerY = this.camera.y + this.canvas.height / 2;
@@ -1998,6 +2192,11 @@ class Game {
                         part.radius = Math.sqrt(part.radius * part.radius + food.radius * food.radius);
                         this.player.score += Math.floor(food.radius * 2);
                         
+                        // 播放吃食物音效
+                        if (this.sounds.eat) {
+                            this.sounds.eat();
+                        }
+                        
                         // 创建吃食物的粒子效果
                         if (this.settings.particleEffects) {
                             this.createEatEffect(food.x, food.y, food.color);
@@ -2387,26 +2586,33 @@ class Game {
     
     drawPlayer(player) {
         player.parts.forEach((part, index) => {
-            // 绘制球体阴影
-            const gradient = this.ctx.createRadialGradient(
-                part.x - part.radius * 0.3, 
-                part.y - part.radius * 0.3, 
-                0,
-                part.x, part.y, part.radius
-            );
-            gradient.addColorStop(0, this.lightenColor(player.color, 30));
-            gradient.addColorStop(0.7, player.color);
-            gradient.addColorStop(1, this.darkenColor(player.color, 20));
+            const isMainPlayer = player === this.player;
             
-            this.ctx.fillStyle = gradient;
-            this.ctx.beginPath();
-            this.ctx.arc(part.x, part.y, part.radius, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            // 绘制边框
-            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-            this.ctx.lineWidth = 2;
-            this.ctx.stroke();
+            // 绘制可爱的动物图案（主要玩家）
+            if (isMainPlayer && part.radius > 20) {
+                this.drawCuteBear(part);
+            } else {
+                // 绘制球体阴影
+                const gradient = this.ctx.createRadialGradient(
+                    part.x - part.radius * 0.3, 
+                    part.y - part.radius * 0.3, 
+                    0,
+                    part.x, part.y, part.radius
+                );
+                gradient.addColorStop(0, this.lightenColor(player.color, 30));
+                gradient.addColorStop(0.7, player.color);
+                gradient.addColorStop(1, this.darkenColor(player.color, 20));
+                
+                this.ctx.fillStyle = gradient;
+                this.ctx.beginPath();
+                this.ctx.arc(part.x, part.y, part.radius, 0, Math.PI * 2);
+                this.ctx.fill();
+                
+                // 绘制边框
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+            }
             
             // 绘制名字（只在最大的球上显示）
             if (player.parts.length === 1 || index === 0) {
@@ -2442,6 +2648,87 @@ class Game {
         this.ctx.beginPath();
         this.ctx.arc(particle.x, particle.y, particle.radius * particle.life, 0, Math.PI * 2);
         this.ctx.fill();
+    }
+    
+    drawCuteBear(part) {
+        const radius = part.radius;
+        const bounce = Math.sin(this.animationFrame * 0.05) * 2;
+        
+        // 绘制熊身体
+        this.ctx.fillStyle = '#8B4513';
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x, part.y + bounce, radius * 0.9, radius, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 绘制熊耳朵
+        const earSize = radius * 0.3;
+        this.ctx.fillStyle = '#6B3410';
+        // 左耳
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x - radius * 0.6, part.y - radius * 0.7 + bounce, earSize, earSize * 1.2, -0.3, 0, Math.PI * 2);
+        this.ctx.fill();
+        // 右耳
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x + radius * 0.6, part.y - radius * 0.7 + bounce, earSize, earSize * 1.2, 0.3, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 绘制熊脸
+        this.ctx.fillStyle = '#D2691E';
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x, part.y + bounce, radius * 0.7, radius * 0.6, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 绘制眼睛
+        const eyeBlink = Math.sin(this.animationFrame * 0.1) > 0.95 ? 0.2 : 1;
+        this.ctx.fillStyle = '#000000';
+        // 左眼
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x - radius * 0.2, part.y - radius * 0.1 + bounce, radius * 0.08 * eyeBlink, radius * 0.12 * eyeBlink, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        // 右眼
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x + radius * 0.2, part.y - radius * 0.1 + bounce, radius * 0.08 * eyeBlink, radius * 0.12 * eyeBlink, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 绘制鼻子
+        this.ctx.fillStyle = '#000000';
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x, part.y + radius * 0.1 + bounce, radius * 0.06, radius * 0.04, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 绘制嘴巴（动画效果）
+        this.ctx.strokeStyle = '#000000';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        const smileRadius = radius * 0.15;
+        const smileAngle = Math.sin(this.animationFrame * 0.08) * 0.3;
+        this.ctx.arc(part.x, part.y + radius * 0.15 + bounce, smileRadius, smileAngle, Math.PI - smileAngle);
+        this.ctx.stroke();
+        
+        // 绘制小脚（走路动画）
+        const walkCycle = Math.sin(this.animationFrame * 0.1);
+        const footOffset = walkCycle * 5;
+        this.ctx.fillStyle = '#6B3410';
+        // 左脚
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x - radius * 0.3, part.y + radius * 0.8 + footOffset, radius * 0.2, radius * 0.15, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        // 右脚
+        this.ctx.beginPath();
+        this.ctx.ellipse(part.x + radius * 0.3, part.y + radius * 0.8 - footOffset, radius * 0.2, radius * 0.15, 0, 0, Math.PI * 2);
+        this.ctx.fill();
+        
+        // 绘制发光效果
+        if (this.settings.particleEffects) {
+            this.ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+            this.ctx.shadowBlur = 10;
+            this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            this.ctx.lineWidth = 3;
+            this.ctx.beginPath();
+            this.ctx.arc(part.x, part.y + bounce, radius + 5, 0, Math.PI * 2);
+            this.ctx.stroke();
+            this.ctx.shadowBlur = 0;
+        }
     }
     
     lightenColor(color, percent) {
@@ -2549,6 +2836,11 @@ class Game {
     gameOver() {
         this.gameState = 'gameover';
         const survivalTime = Math.floor((Date.now() - this.startTime) / 1000);
+        
+        // 播放游戏结束音效
+        if (this.sounds.gameOver) {
+            this.sounds.gameOver();
+        }
         
         document.getElementById('finalScore').textContent = this.player.score;
         document.getElementById('survivalTime').textContent = survivalTime;
